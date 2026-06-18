@@ -79,6 +79,7 @@ export function FormPengajuanPage() {
       form,
       fotoKtpFile,
       buktiTransferFile,
+      banjarOptions,
     })
     if (result.error?.fields) setErrors(result.error.fields)
     if (result.data) setSuccess(result.data)

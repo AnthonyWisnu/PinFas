@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAppContext } from './useAppContext'
+import { formatBanjarAsal } from '../utils/formatBanjarAsal'
 
 const PENGAJUAN_SELECT = `
   *,
@@ -25,7 +26,7 @@ function mapAset(row) {
   }
 }
 
-function mapPengajuan(row) {
+function mapPengajuan(row, banjarOptions = []) {
   const aset = mapAset(row.aset)
   return {
     id: row.id, nomorPengajuan: row.nomor_pengajuan, asetId: row.aset_id, aset,
@@ -33,7 +34,8 @@ function mapPengajuan(row) {
     nik: row.nik,
     nama: row.nama,
     nomorHp: row.nomor_hp,
-    banjarAsal: row.banjar_asal,
+    banjarAsal: formatBanjarAsal(row.banjar_asal, banjarOptions),
+    banjarAsalRaw: row.banjar_asal,
     keperluan: row.keperluan,
     estimasiTamu: row.estimasi_tamu,
     tanggalMulai: row.tanggal_mulai,
@@ -142,16 +144,22 @@ export function useAdmin() {
     if (filters.keyword) query = query.or(`nama.ilike.%${filters.keyword}%,nik.ilike.%${filters.keyword}%`)
     if (filters.banjarAsal) query = query.ilike('banjar_asal', `%${filters.banjarAsal}%`)
 
-    const { data, error: requestError } = await query
+    const [pengajuanResult, banjarResult] = await Promise.all([
+      query,
+      supabase.from('banjar').select('id, nama').order('nama', { ascending: true }),
+    ])
+
+    const requestError = pengajuanResult.error ?? banjarResult.error
     if (requestError) {
       setError(requestError.message)
       setLoading(false)
       return { data: [], error: requestError }
     }
 
+    const banjarOptions = banjarResult.data ?? []
     const mapped = await Promise.all(
-      (data ?? []).map(async (row) => ({
-        ...mapPengajuan(row),
+      (pengajuanResult.data ?? []).map(async (row) => ({
+        ...mapPengajuan(row, banjarOptions),
         fotoKtpSignedUrl: await signedUrl('pinfas-ktp', row.foto_ktp_url),
         buktiTransferSignedUrl: await signedUrl('pinfas-bukti-transfer', row.bukti_transfer_url),
       })),

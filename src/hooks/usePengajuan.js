@@ -2,14 +2,16 @@ import { useCallback, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { generateNomorPengajuan } from '../utils/generateNomorPengajuan'
 import { kalkulasiTarif } from '../utils/kalkulasiTarif'
+import { formatBanjarAsal } from '../utils/formatBanjarAsal'
 import { validasiPengajuan } from '../utils/validasiPengajuan'
 
-function mapPengajuan(row) {
+function mapPengajuan(row, banjarOptions = []) {
   return {
     id: row.id,
     nomorPengajuan: row.nomor_pengajuan,
     asetId: row.aset_id,
     namaAset: row.nama_aset ?? row.aset?.nama,
+    banjarAsal: formatBanjarAsal(row.banjar_asal, banjarOptions),
     keperluan: row.keperluan,
     tanggalMulai: row.tanggal_mulai,
     tanggalSelesai: row.tanggal_selesai,
@@ -26,7 +28,7 @@ function mapPengajuan(row) {
   }
 }
 
-function mapDetailSurat(row) {
+function mapDetailSurat(row, banjarOptions = []) {
   if (!row) return null
   return {
     id: row.id,
@@ -34,7 +36,7 @@ function mapDetailSurat(row) {
     nik: row.nik,
     nama: row.nama,
     nomorHp: row.nomor_hp,
-    banjarAsal: row.banjar_asal,
+    banjarAsal: formatBanjarAsal(row.banjar_asal, banjarOptions),
     estimasiTamu: row.estimasi_tamu,
     keperluan: row.keperluan,
     tanggalMulai: row.tanggal_mulai,
@@ -72,13 +74,17 @@ export function usePengajuan() {
   const lacakPengajuan = useCallback(async (query) => {
     setLoading(true)
     setError(null)
-    const { data, error: rpcError } = await supabase.rpc('lacak_pengajuan', { p_query: query })
+    const [pengajuanResult, banjarResult] = await Promise.all([
+      supabase.rpc('lacak_pengajuan', { p_query: query }),
+      supabase.from('banjar').select('id, nama').order('nama', { ascending: true }),
+    ])
     setLoading(false)
+    const rpcError = pengajuanResult.error ?? banjarResult.error
     if (rpcError) {
       setError(rpcError.message)
       return { data: [], error: rpcError }
     }
-    return { data: (data ?? []).map(mapPengajuan), error: null }
+    return { data: (pengajuanResult.data ?? []).map((row) => mapPengajuan(row, banjarResult.data ?? [])), error: null }
   }, [])
 
   const hitungAktif = useCallback(async (nik) => {
@@ -87,7 +93,7 @@ export function usePengajuan() {
   }, [])
 
   const submitPengajuan = useCallback(
-    async ({ aset, konfigurasi, currentCitizen, form, fotoKtpFile, buktiTransferFile }) => {
+    async ({ aset, konfigurasi, currentCitizen, form, fotoKtpFile, buktiTransferFile, banjarOptions = [] }) => {
       setLoading(true)
       setError(null)
       const activeResult = await hitungAktif(form.nik)
@@ -127,7 +133,7 @@ export function usePengajuan() {
         nik: form.nik,
         nama: form.nama,
         nomor_hp: form.nomorHp,
-        banjar_asal: form.banjarAsal,
+        banjar_asal: formatBanjarAsal(form.banjarAsal, banjarOptions),
         keperluan: form.keperluan,
         estimasi_tamu: form.estimasiTamu ? Number(form.estimasiTamu) : null,
         tanggal_mulai: form.tanggalMulai,
@@ -186,30 +192,38 @@ export function usePengajuan() {
   const fetchDetailSurat = useCallback(async ({ nomorPengajuan, identifier }) => {
     setLoading(true)
     setError(null)
-    const { data, error: rpcError } = await supabase.rpc('detail_surat_public', {
-      p_nomor_pengajuan: nomorPengajuan,
-      p_identifier: identifier,
-    })
+    const [suratResult, banjarResult] = await Promise.all([
+      supabase.rpc('detail_surat_public', {
+        p_nomor_pengajuan: nomorPengajuan,
+        p_identifier: identifier,
+      }),
+      supabase.from('banjar').select('id, nama').order('nama', { ascending: true }),
+    ])
     setLoading(false)
+    const rpcError = suratResult.error ?? banjarResult.error
     if (rpcError) {
       setError(rpcError.message)
       return { data: null, error: rpcError }
     }
-    return { data: mapDetailSurat(data?.[0]), error: null }
+    return { data: mapDetailSurat(suratResult.data?.[0], banjarResult.data ?? []), error: null }
   }, [])
 
   const verifikasiSurat = useCallback(async (nomorPengajuan) => {
     setLoading(true)
     setError(null)
-    const { data, error: rpcError } = await supabase.rpc('verifikasi_surat_public', {
-      p_nomor_pengajuan: nomorPengajuan,
-    })
+    const [suratResult, banjarResult] = await Promise.all([
+      supabase.rpc('verifikasi_surat_public', {
+        p_nomor_pengajuan: nomorPengajuan,
+      }),
+      supabase.from('banjar').select('id, nama').order('nama', { ascending: true }),
+    ])
     setLoading(false)
+    const rpcError = suratResult.error ?? banjarResult.error
     if (rpcError) {
       setError(rpcError.message)
       return { data: null, error: rpcError }
     }
-    return { data: mapDetailSurat(data?.[0]), error: null }
+    return { data: mapDetailSurat(suratResult.data?.[0], banjarResult.data ?? []), error: null }
   }, [])
 
   return {
