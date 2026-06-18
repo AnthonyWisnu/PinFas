@@ -2,12 +2,14 @@ import { useCallback, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAppContext } from './useAppContext'
 import { formatBanjarAsal } from '../utils/formatBanjarAsal'
+import { getCachedSignedUrl, preloadImage } from '../utils/storagePreview'
 
 const PENGAJUAN_SELECT = `
   *,
   aset:aset_id (*, banjar:banjar_id (id, nama)),
   approver:approved_by (id, nama, jabatan)
 `
+const STATUS_PEMASUKAN = ['approved', 'terlambat', 'selesai']
 
 function mapAset(row) {
   if (!row) return null
@@ -35,7 +37,6 @@ function mapPengajuan(row, banjarOptions = []) {
     nama: row.nama,
     nomorHp: row.nomor_hp,
     banjarAsal: formatBanjarAsal(row.banjar_asal, banjarOptions),
-    banjarAsalRaw: row.banjar_asal,
     keperluan: row.keperluan,
     estimasiTamu: row.estimasi_tamu,
     tanggalMulai: row.tanggal_mulai,
@@ -58,12 +59,6 @@ function mapPengajuan(row, banjarOptions = []) {
 function todayDate() {
   const date = new Date()
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
-async function signedUrl(bucket, path) {
-  if (!path || path.startsWith('http')) return path
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 60 * 10)
-  return error ? path : data?.signedUrl
 }
 
 function canProcess(user, pengajuan) {
@@ -158,11 +153,17 @@ export function useAdmin() {
 
     const banjarOptions = banjarResult.data ?? []
     const mapped = await Promise.all(
-      (pengajuanResult.data ?? []).map(async (row) => ({
-        ...mapPengajuan(row, banjarOptions),
-        fotoKtpSignedUrl: await signedUrl('pinfas-ktp', row.foto_ktp_url),
-        buktiTransferSignedUrl: await signedUrl('pinfas-bukti-transfer', row.bukti_transfer_url),
-      })),
+      (pengajuanResult.data ?? []).map(async (row) => {
+        const fotoKtpSignedUrl = await getCachedSignedUrl('pinfas-ktp', row.foto_ktp_url)
+        const buktiTransferSignedUrl = await getCachedSignedUrl('pinfas-bukti-transfer', row.bukti_transfer_url)
+        preloadImage(fotoKtpSignedUrl)
+        preloadImage(buktiTransferSignedUrl)
+        return {
+          ...mapPengajuan(row, banjarOptions),
+          fotoKtpSignedUrl,
+          buktiTransferSignedUrl,
+        }
+      }),
     )
     setPengajuan(mapped)
     setLoading(false)
@@ -272,13 +273,19 @@ export function useAdmin() {
 
   const kpi = useMemo(() => {
     const bulan = todayDate().slice(0, 7)
-    const selesaiBulanIni = pengajuan.filter((item) => item.status === 'selesai' && item.tanggalKembaliAktual?.startsWith(bulan))
+    const sewaBulanIni = pengajuan.filter((item) => (
+      STATUS_PEMASUKAN.includes(item.status) && item.approvedAt?.startsWith(bulan)
+    ))
+    const dendaBulanIni = pengajuan.filter((item) => item.status === 'selesai' && item.tanggalKembaliAktual?.startsWith(bulan))
     return {
       total: pengajuan.length,
       pending: pengajuan.filter((item) => item.status === 'pending').length,
       konfirmasiBayar: pengajuan.filter((item) => item.status === 'menunggu_konfirmasi_bayar').length,
       approvedBulanIni: pengajuan.filter((item) => item.status === 'approved' && item.approvedAt?.startsWith(bulan)).length,
-      pemasukanBulanIni: selesaiBulanIni.reduce((sum, item) => sum + item.totalBiaya + item.dendaKeterlambatan, 0),
+      pemasukanBulanIni: (
+        sewaBulanIni.reduce((sum, item) => sum + item.totalBiaya, 0)
+        + dendaBulanIni.reduce((sum, item) => sum + item.dendaKeterlambatan, 0)
+      ),
     }
   }, [pengajuan])
 

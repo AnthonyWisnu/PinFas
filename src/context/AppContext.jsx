@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useCallback, useEffect, useMemo, useReducer } from 'react'
+import { createContext, useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
 import { appReducer, initialState } from './AppReducer'
 import { supabase } from '../lib/supabase'
 
@@ -60,6 +60,7 @@ function mapWargaProfile(row) {
 
 export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(appReducer, initialState)
+  const syncedAuthIdRef = useRef(null)
 
   const loadKonfigurasi = useCallback(async () => {
     const { data, error } = await supabase
@@ -74,11 +75,14 @@ export function AppProvider({ children }) {
     }
   }, [])
 
-  const syncSessionProfile = useCallback(async (session) => {
-    dispatch({ type: 'SET_AUTH_LOADING', payload: true })
-    dispatch({ type: 'SET_CITIZEN_AUTH_LOADING', payload: true })
+  const syncSessionProfile = useCallback(async (session, options = {}) => {
+    if (!options.silent) {
+      dispatch({ type: 'SET_AUTH_LOADING', payload: true })
+      dispatch({ type: 'SET_CITIZEN_AUTH_LOADING', payload: true })
+    }
 
     if (!session?.user?.id) {
+      syncedAuthIdRef.current = null
       dispatch({ type: 'CLEAR_AUTH_USER' })
       dispatch({ type: 'CLEAR_CITIZEN_USER' })
       return
@@ -92,12 +96,14 @@ export function AppProvider({ children }) {
       .maybeSingle()
 
     if (!adminError && adminProfile?.is_active !== false) {
+      syncedAuthIdRef.current = authId
       dispatch({ type: 'SET_AUTH_USER', payload: mapUserAdmin(adminProfile) })
       dispatch({ type: 'CLEAR_CITIZEN_USER' })
       return
     }
 
     if (!adminError && adminProfile?.is_active === false) {
+      syncedAuthIdRef.current = null
       await supabase.auth.signOut()
       dispatch({ type: 'CLEAR_AUTH_USER' })
       dispatch({ type: 'CLEAR_CITIZEN_USER' })
@@ -111,11 +117,13 @@ export function AppProvider({ children }) {
       .maybeSingle()
 
     if (!wargaError && wargaProfile) {
+      syncedAuthIdRef.current = authId
       dispatch({ type: 'CLEAR_AUTH_USER' })
       dispatch({ type: 'SET_CITIZEN_USER', payload: mapWargaProfile(wargaProfile) })
       return
     }
 
+    syncedAuthIdRef.current = authId
     dispatch({ type: 'CLEAR_AUTH_USER' })
     dispatch({ type: 'CLEAR_CITIZEN_USER' })
   }, [])
@@ -133,10 +141,17 @@ export function AppProvider({ children }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (active) {
-        void syncSessionProfile(session)
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!active || event === 'INITIAL_SESSION') return
+
+      const authId = session?.user?.id ?? null
+      const sameUser = authId && authId === syncedAuthIdRef.current
+
+      if (sameUser && (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED' || event === 'SIGNED_IN')) {
+        return
       }
+
+      void syncSessionProfile(session, { silent: true })
     })
 
     return () => {

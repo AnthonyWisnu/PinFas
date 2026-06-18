@@ -20,6 +20,12 @@ const steps = [
   { id: 'konfirmasi', label: 'Konfirmasi' },
 ]
 
+function stepForErrors(fields = {}) {
+  if (fields.nik || fields.nama || fields.nomorHp || fields.banjarAsal) return 0
+  if (fields.keperluan || fields.tanggalMulai || fields.tanggalSelesai || fields.estimasiTamu) return 1
+  return 2
+}
+
 function createInitialForm(citizen) {
   return {
     nik: citizen?.nik ?? '',
@@ -39,7 +45,7 @@ export function FormPengajuanPage() {
     state: { currentCitizen, konfigurasi },
   } = useAppContext()
   const { aset, banjarOptions, tanggalTerpakai, blacklistTanggal, loading: asetLoading } = useAset()
-  const { submitPengajuan, loading } = usePengajuan()
+  const { submitPengajuan, hitungAktif, loading, error } = usePengajuan()
   const [step, setStep] = useState(0)
   const [form, setForm] = useState(() => createInitialForm(currentCitizen))
   const [errors, setErrors] = useState({})
@@ -47,6 +53,8 @@ export function FormPengajuanPage() {
   const [buktiTransferFile, setBuktiTransferFile] = useState(null)
   const [agreed, setAgreed] = useState(false)
   const [success, setSuccess] = useState(null)
+  const [submitMessage, setSubmitMessage] = useState('')
+  const [checkingNik, setCheckingNik] = useState(false)
 
   const detail = aset.find((item) => item.id === id)
   const biaya = useMemo(() => kalkulasiTarif(detail ?? {}, form), [detail, form])
@@ -66,11 +74,45 @@ export function FormPengajuanPage() {
     return validation.valid && agreed
   }
 
-  const nextStep = () => {
-    if (validateCurrent()) setStep((value) => Math.min(value + 1, 2))
+  const checkNikAktif = async () => {
+    if (step !== 0) return true
+
+    setCheckingNik(true)
+    const result = await hitungAktif(form.nik)
+    setCheckingNik(false)
+
+    if (result.error) {
+      setSubmitMessage(result.error.message)
+      return false
+    }
+
+    const jumlahAktif = Number(result.data ?? 0)
+
+    if (jumlahAktif >= 2) {
+      const message = 'NIK ini sudah memiliki 2 pengajuan aktif. Selesaikan atau kembalikan salah satu pengajuan terlebih dahulu.'
+      setErrors((current) => ({ ...current, nik: message }))
+      setSubmitMessage(message)
+      return false
+    }
+
+    if (jumlahAktif === 1) {
+      setSubmitMessage('NIK ini sudah memiliki 1 pengajuan aktif. Batas maksimal adalah 2 pengajuan aktif.')
+    } else {
+      setSubmitMessage('')
+    }
+
+    return true
+  }
+
+  const nextStep = async () => {
+    if (!validateCurrent()) return
+    if (!(await checkNikAktif())) return
+    setStep((value) => Math.min(value + 1, 2))
   }
 
   const submit = async () => {
+    if (loading) return
+    setSubmitMessage('')
     if (!validateCurrent()) return
     const result = await submitPengajuan({
       aset: detail,
@@ -81,7 +123,13 @@ export function FormPengajuanPage() {
       buktiTransferFile,
       banjarOptions,
     })
-    if (result.error?.fields) setErrors(result.error.fields)
+    if (result.error?.fields) {
+      setErrors(result.error.fields)
+      setStep(stepForErrors(result.error.fields))
+      setSubmitMessage(result.error.message)
+    } else if (result.error?.message) {
+      setSubmitMessage(result.error.message)
+    }
     if (result.data) setSuccess(result.data)
   }
 
@@ -130,9 +178,14 @@ export function FormPengajuanPage() {
             onBuktiChange={setBuktiTransferFile}
           />
         ) : null}
+        {submitMessage || error ? (
+          <p className="mt-4 rounded-xl bg-[#FEE2E2] px-4 py-3 text-sm font-semibold text-[#9B1C1C]">
+            {submitMessage || error}
+          </p>
+        ) : null}
         <div className="mt-6 flex justify-between gap-3">
           <ButtonPrimary disabled={step === 0} variant="ghost" onClick={() => setStep((value) => Math.max(value - 1, 0))}>Kembali</ButtonPrimary>
-          {step < 2 ? <ButtonPrimary onClick={nextStep}>Lanjut</ButtonPrimary> : <ButtonPrimary loading={loading} onClick={submit}>Kirim Pengajuan</ButtonPrimary>}
+          {step < 2 ? <ButtonPrimary loading={checkingNik} onClick={nextStep}>Lanjut</ButtonPrimary> : <ButtonPrimary loading={loading} onClick={submit}>Kirim Pengajuan</ButtonPrimary>}
         </div>
       </div>
     </section>

@@ -5,6 +5,21 @@ import { kalkulasiTarif } from '../utils/kalkulasiTarif'
 import { formatBanjarAsal } from '../utils/formatBanjarAsal'
 import { validasiPengajuan } from '../utils/validasiPengajuan'
 
+const REQUEST_TIMEOUT_MS = 30000
+
+function createTimeoutError(message) {
+  return { message }
+}
+
+function withTimeout(promise, message) {
+  let timeoutId
+  const timeout = new Promise((resolve) => {
+    timeoutId = setTimeout(() => resolve({ data: null, error: createTimeoutError(message) }), REQUEST_TIMEOUT_MS)
+  })
+
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId))
+}
+
 function mapPengajuan(row, banjarOptions = []) {
   return {
     id: row.id,
@@ -58,11 +73,14 @@ async function uploadFile(bucket, file, folder) {
   if (!file) return { data: null, error: null }
   const extension = file.name.split('.').pop() || 'jpg'
   const path = `${folder}/${crypto.randomUUID()}.${extension}`
-  const { error } = await supabase.storage.from(bucket).upload(path, file, {
-    cacheControl: '3600',
-    contentType: file.type,
-    upsert: false,
-  })
+  const { error } = await withTimeout(
+    supabase.storage.from(bucket).upload(path, file, {
+      cacheControl: '3600',
+      contentType: file.type,
+      upsert: false,
+    }),
+    'Upload file terlalu lama. Coba kompres gambar atau ulangi beberapa saat lagi.',
+  )
   if (error) return { data: null, error }
   return { data: path, error: null }
 }
@@ -96,63 +114,64 @@ export function usePengajuan() {
     async ({ aset, konfigurasi, currentCitizen, form, fotoKtpFile, buktiTransferFile, banjarOptions = [] }) => {
       setLoading(true)
       setError(null)
-      const activeResult = await hitungAktif(form.nik)
-      const tarif = kalkulasiTarif(aset, { ...form })
-      const validation = validasiPengajuan({
-        pengajuan: form,
-        aset,
-        konfigurasi,
-        pengajuanAktif: Array.from({ length: activeResult.data }, () => ({ status: 'pending' })),
-      })
 
-      if (!validation.valid) {
+      try {
+        const activeResult = await withTimeout(hitungAktif(form.nik), 'Pengecekan pengajuan aktif terlalu lama. Coba lagi.')
+        if (activeResult.error) throw activeResult.error
+
+        const tarif = kalkulasiTarif(aset, { ...form })
+        const validation = validasiPengajuan({
+          pengajuan: form,
+          aset,
+          konfigurasi,
+          pengajuanAktif: Array.from({ length: activeResult.data ?? 0 }, () => ({ status: 'pending' })),
+        })
+
+        if (!validation.valid) {
+          const message = Object.values(validation.errors)[0] ?? 'Validasi gagal.'
+          return { data: null, error: { message, fields: validation.errors } }
+        }
+
+        const nomorPengajuan = generateNomorPengajuan()
+        const ktpUpload = await uploadFile('pinfas-ktp', fotoKtpFile, nomorPengajuan)
+        if (ktpUpload.error) throw ktpUpload.error
+
+        const buktiUpload = await uploadFile('pinfas-bukti-transfer', buktiTransferFile, nomorPengajuan)
+        if (buktiUpload.error) throw buktiUpload.error
+
+        const payload = {
+          nomor_pengajuan: nomorPengajuan,
+          aset_id: aset.id,
+          warga_profile_id: currentCitizen?.id ?? null,
+          nik: form.nik,
+          nama: form.nama,
+          nomor_hp: form.nomorHp,
+          banjar_asal: formatBanjarAsal(form.banjarAsal, banjarOptions),
+          keperluan: form.keperluan,
+          estimasi_tamu: form.estimasiTamu ? Number(form.estimasiTamu) : null,
+          tanggal_mulai: form.tanggalMulai,
+          tanggal_selesai: form.tanggalSelesai,
+          kategori_tarif: tarif.kategoriTarif,
+          tarif_per_hari: tarif.tarifPerHari,
+          total_biaya: tarif.totalBiaya,
+          foto_ktp_url: ktpUpload.data,
+          bukti_transfer_url: buktiUpload.data,
+          status: 'pending',
+        }
+
+        const { error: insertError } = await withTimeout(
+          supabase.from('pengajuan').insert(payload),
+          'Pengiriman pengajuan terlalu lama. Coba lagi beberapa saat.',
+        )
+        if (insertError) throw insertError
+
+        return { data: { nomorPengajuan, status: 'pending', totalBiaya: tarif.totalBiaya }, error: null }
+      } catch (requestError) {
+        setError(requestError.message)
+        return { data: null, error: requestError }
+      } finally {
         setLoading(false)
-        return { data: null, error: { message: 'Validasi gagal.', fields: validation.errors } }
       }
-
-      const nomorPengajuan = generateNomorPengajuan()
-      const ktpUpload = await uploadFile('pinfas-ktp', fotoKtpFile, nomorPengajuan)
-      if (ktpUpload.error) {
-        setError(ktpUpload.error.message)
-        setLoading(false)
-        return { data: null, error: ktpUpload.error }
-      }
-
-      const buktiUpload = await uploadFile('pinfas-bukti-transfer', buktiTransferFile, nomorPengajuan)
-      if (buktiUpload.error) {
-        setError(buktiUpload.error.message)
-        setLoading(false)
-        return { data: null, error: buktiUpload.error }
-      }
-
-      const status = 'pending'
-      const payload = {
-        nomor_pengajuan: nomorPengajuan,
-        aset_id: aset.id,
-        warga_profile_id: currentCitizen?.id ?? null,
-        nik: form.nik,
-        nama: form.nama,
-        nomor_hp: form.nomorHp,
-        banjar_asal: formatBanjarAsal(form.banjarAsal, banjarOptions),
-        keperluan: form.keperluan,
-        estimasi_tamu: form.estimasiTamu ? Number(form.estimasiTamu) : null,
-        tanggal_mulai: form.tanggalMulai,
-        tanggal_selesai: form.tanggalSelesai,
-        kategori_tarif: tarif.kategoriTarif,
-        tarif_per_hari: tarif.tarifPerHari,
-        total_biaya: tarif.totalBiaya,
-        foto_ktp_url: ktpUpload.data,
-        bukti_transfer_url: buktiUpload.data,
-        status,
-      }
-
-      const { error: insertError } = await supabase.from('pengajuan').insert(payload)
-      setLoading(false)
-      if (insertError) {
-        setError(insertError.message)
-        return { data: null, error: insertError }
-      }
-      return { data: { nomorPengajuan, status, totalBiaya: tarif.totalBiaya }, error: null }
     },
     [hitungAktif],
   )

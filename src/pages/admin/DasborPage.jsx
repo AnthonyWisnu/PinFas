@@ -75,7 +75,7 @@ export function DasborPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <KPICard icon={FileText} label="Total Pengajuan" value={admin.kpi.total} />
         <KPICard icon={CalendarCheck} label="Menunggu Verifikasi" tone="accent" value={admin.kpi.pending} />
-        <KPICard icon={CreditCard} label="Konfirmasi Bayar" tone="secondary" value={admin.kpi.konfirmasiBayar} />
+        <KPICard icon={CreditCard} label="Menunggu Konfirmasi Bayar" tone="secondary" value={admin.kpi.konfirmasiBayar} />
         <KPICard icon={Package} label="Approved Bulan Ini" value={admin.kpi.approvedBulanIni} />
         <KPICard icon={TrendingUp} label="Pemasukan Bulan Ini" tone="accent" value={formatCurrency(admin.kpi.pemasukanBulanIni)} />
       </div>
