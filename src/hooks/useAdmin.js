@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAppContext } from './useAppContext'
 import { formatBanjarAsal } from '../utils/formatBanjarAsal'
 import { getCachedSignedUrl, preloadImage } from '../utils/storagePreview'
+import { isPerluCekBayar } from '../utils/statusOptions'
 
 const PENGAJUAN_SELECT = `
   *,
@@ -10,7 +11,6 @@ const PENGAJUAN_SELECT = `
   approver:approved_by (id, nama, jabatan)
 `
 const STATUS_PEMASUKAN = ['approved', 'terlambat', 'selesai']
-
 function mapAset(row) {
   if (!row) return null
   return {
@@ -130,9 +130,10 @@ export function useAdmin() {
   const fetchPengajuan = useCallback(async (filters = {}) => {
     setLoading(true)
     setError(null)
+    const specialStatus = filters.status === 'perlu_cek_bayar'
     let query = supabase.from('pengajuan').select(PENGAJUAN_SELECT).order('created_at', { ascending: false })
 
-    if (filters.status && filters.status !== 'semua') query = query.eq('status', filters.status)
+    if (filters.status && filters.status !== 'semua' && !specialStatus) query = query.eq('status', filters.status)
     if (filters.asetId && filters.asetId !== 'semua') query = query.eq('aset_id', filters.asetId)
     if (filters.tanggalMulai) query = query.gte('tanggal_mulai', filters.tanggalMulai)
     if (filters.tanggalSelesai) query = query.lte('tanggal_selesai', filters.tanggalSelesai)
@@ -152,7 +153,7 @@ export function useAdmin() {
     }
 
     const banjarOptions = banjarResult.data ?? []
-    const mapped = await Promise.all(
+    let mapped = await Promise.all(
       (pengajuanResult.data ?? []).map(async (row) => {
         const fotoKtpSignedUrl = await getCachedSignedUrl('pinfas-ktp', row.foto_ktp_url)
         const buktiTransferSignedUrl = await getCachedSignedUrl('pinfas-bukti-transfer', row.bukti_transfer_url)
@@ -165,6 +166,7 @@ export function useAdmin() {
         }
       }),
     )
+    if (specialStatus) mapped = mapped.filter(isPerluCekBayar)
     setPengajuan(mapped)
     setLoading(false)
     return { data: mapped, error: null }
@@ -280,7 +282,7 @@ export function useAdmin() {
     return {
       total: pengajuan.length,
       pending: pengajuan.filter((item) => item.status === 'pending').length,
-      konfirmasiBayar: pengajuan.filter((item) => item.status === 'menunggu_konfirmasi_bayar').length,
+      perluCekBayar: pengajuan.filter(isPerluCekBayar).length,
       approvedBulanIni: pengajuan.filter((item) => item.status === 'approved' && item.approvedAt?.startsWith(bulan)).length,
       pemasukanBulanIni: (
         sewaBulanIni.reduce((sum, item) => sum + item.totalBiaya, 0)

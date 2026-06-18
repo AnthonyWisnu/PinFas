@@ -10,9 +10,11 @@ import { TabelPengajuan } from '../../components/admin/TabelPengajuan'
 import { ButtonPrimary } from '../../components/common/ButtonPrimary'
 import { EmptyState } from '../../components/common/EmptyState'
 import { LoadingSpinner } from '../../components/common/LoadingSpinner'
+import { SearchableSelect } from '../../components/common/SearchableSelect'
 import { useAdmin } from '../../hooks/useAdmin'
 import { useAppContext } from '../../hooks/useAppContext'
 import { useAset } from '../../hooks/useAset'
+import { pengajuanStatusOptions } from '../../utils/statusOptions'
 
 const initialFilters = {
   status: 'semua',
@@ -22,8 +24,6 @@ const initialFilters = {
   keyword: '',
   banjarAsal: '',
 }
-
-const statusOptions = ['semua', 'pending', 'menunggu_pembayaran', 'menunggu_konfirmasi_bayar', 'approved', 'terlambat', 'selesai', 'rejected', 'dibatalkan']
 
 export function ManajemenPengajuanPage() {
   const { state } = useAppContext()
@@ -49,6 +49,13 @@ export function ManajemenPengajuanPage() {
     if (state.currentUser?.role !== 'kelian_banjar') return aset
     return aset.filter((item) => item.kategoriPemilik === 'banjar' && item.banjarId === state.currentUser.banjarId)
   }, [aset, state.currentUser])
+  const asetOptions = useMemo(
+    () => [
+      { value: 'semua', label: 'Semua Aset' },
+      ...visibleAset.map((item) => ({ value: item.id, label: item.nama })),
+    ],
+    [visibleAset],
+  )
 
   const setField = (field, value) => setFilters((current) => ({ ...current, [field]: value }))
 
@@ -88,16 +95,11 @@ export function ManajemenPengajuanPage() {
       </div>
       <form className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-3 xl:grid-cols-6" onSubmit={handleFilter}>
         <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={filters.status} onChange={(e) => setField('status', e.target.value)}>
-          {statusOptions.map((status) => (
-            <option key={status} value={status}>{status === 'semua' ? 'Semua Status' : status}</option>
+          {pengajuanStatusOptions.map((status) => (
+            <option key={status.value} value={status.value}>{status.label}</option>
           ))}
         </select>
-        <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={filters.asetId} onChange={(e) => setField('asetId', e.target.value)}>
-          <option value="semua">Semua Aset</option>
-          {visibleAset.map((item) => (
-            <option key={item.id} value={item.id}>{item.nama}</option>
-          ))}
-        </select>
+        <SearchableSelect allLabel="Semua Aset" options={asetOptions} placeholder="Cari aset" value={filters.asetId} onChange={(value) => setField('asetId', value)} />
         <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" type="date" value={filters.tanggalMulai} onChange={(e) => setField('tanggalMulai', e.target.value)} />
         <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" type="date" value={filters.tanggalSelesai} onChange={(e) => setField('tanggalSelesai', e.target.value)} />
         <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Nama atau NIK" value={filters.keyword} onChange={(e) => setField('keyword', e.target.value)} />

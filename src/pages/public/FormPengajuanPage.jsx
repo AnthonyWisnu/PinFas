@@ -71,6 +71,15 @@ export function FormPengajuanPage() {
     setErrors(validation.errors)
     if (step === 0) return !validation.errors.nik && !validation.errors.nama && !validation.errors.nomorHp && !validation.errors.banjarAsal
     if (step === 1) return !validation.errors.keperluan && !validation.errors.tanggalMulai && !validation.errors.tanggalSelesai
+    if (biaya.totalBiaya > 0 && !buktiTransferFile) {
+      setSubmitMessage('Unggah bukti transfer terlebih dahulu untuk pengajuan berbayar.')
+      return false
+    }
+    if (!agreed) {
+      setSubmitMessage('Setujui syarat dan ketentuan sebelum mengirim pengajuan.')
+      return false
+    }
+    setSubmitMessage('')
     return validation.valid && agreed
   }
 
