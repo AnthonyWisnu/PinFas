@@ -6,7 +6,7 @@ export function GrafikPerBanjar({ data = [], title = 'Pemasukan per Banjar' }) {
   const hasPemasukan = data.some((item) => Number(item.totalPemasukan ?? 0) > 0)
 
   if (data.length === 0 || !hasPemasukan) {
-    return <EmptyState className="rounded-2xl border border-slate-200 bg-white" title="Belum Ada Data Banjar" description="Transaksi selesai akan muncul sebagai perbandingan pemasukan." />
+    return <EmptyState className="rounded-2xl border border-slate-200 bg-white" title="Belum Ada Data Banjar" description="Data pemasukan akan muncul sebagai perbandingan wilayah." />
   }
 
   return (

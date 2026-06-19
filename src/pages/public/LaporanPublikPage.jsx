@@ -52,10 +52,10 @@ export function LaporanPublikPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {data.perAset.map((item) => (
-                    <tr key={item.aset_id}>
-                      <td className="px-4 py-4 font-semibold text-primary">{item.nama_aset}</td>
-                      <td className="px-4 py-4 text-slate-600">{item.total_penyewaan}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatCurrency(item.total_pemasukan)}</td>
+                    <tr key={item.asetId}>
+                      <td className="px-4 py-4 font-semibold text-primary">{item.namaAset}</td>
+                      <td className="px-4 py-4 text-slate-600">{item.totalPenyewaan}</td>
+                      <td className="px-4 py-4 text-slate-600">{formatCurrency(item.totalPemasukan)}</td>
                     </tr>
                   ))}
                 </tbody>

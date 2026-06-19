@@ -9,7 +9,7 @@ function formatMonth(value) {
 
 export function GrafikTren({ data = [], title = 'Tren Peminjaman' }) {
   if (data.length === 0) {
-    return <EmptyState className="rounded-2xl border border-slate-200 bg-white" title="Belum Ada Tren" description="Data selesai akan membentuk grafik bulanan." />
+    return <EmptyState className="rounded-2xl border border-slate-200 bg-white" title="Belum Ada Tren" description="Data penyewaan akan membentuk grafik bulanan." />
   }
 
   return (

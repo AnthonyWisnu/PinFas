@@ -80,6 +80,31 @@ function aggregateRows(rows) {
   return { kpi, tren, perBanjar: [...banjarMap.values()].sort((a, b) => b.totalPemasukan - a.totalPemasukan) }
 }
 
+function mapPublicTrend(row) {
+  return {
+    bulan: row.bulan,
+    totalPenyewaan: row.totalPenyewaan ?? row.total_penyewaan ?? 0,
+    totalPemasukan: row.totalPemasukan ?? row.total_pemasukan ?? 0,
+  }
+}
+
+function mapPublicBanjar(row) {
+  return {
+    namaBanjar: row.namaBanjar ?? row.nama_banjar ?? 'Desa/Kelurahan',
+    totalPenyewaan: row.totalPenyewaan ?? row.total_penyewaan ?? 0,
+    totalPemasukan: row.totalPemasukan ?? row.total_pemasukan ?? 0,
+  }
+}
+
+function mapPublicAset(row) {
+  return {
+    asetId: row.asetId ?? row.aset_id,
+    namaAset: row.namaAset ?? row.nama_aset ?? '-',
+    totalPenyewaan: row.totalPenyewaan ?? row.total_penyewaan ?? 0,
+    totalPemasukan: row.totalPemasukan ?? row.total_pemasukan ?? 0,
+  }
+}
+
 async function exportRowsToExcel(rows, fileName) {
   const XLSX = await import('xlsx')
   const sheet = XLSX.utils.json_to_sheet(
@@ -151,9 +176,9 @@ export function useLaporan() {
     if (!laporanPublik) return null
     return {
       kpi: laporanPublik.kpi ?? {},
-      tren: laporanPublik.tren ?? [],
-      perBanjar: laporanPublik.perBanjar ?? [],
-      perAset: laporanPublik.perAset ?? [],
+      tren: (laporanPublik.tren ?? []).map(mapPublicTrend),
+      perBanjar: (laporanPublik.perBanjar ?? []).map(mapPublicBanjar),
+      perAset: (laporanPublik.perAset ?? []).map(mapPublicAset),
     }
   }, [laporanPublik])
 

@@ -51,6 +51,18 @@ export function useWargaAuth() {
     return { data: mapWargaProfile(data), error: null }
   }, [])
 
+  const upsertProfil = useCallback(async (input) => {
+    const { data, error: profileError } = await supabase.rpc('upsert_warga_profile_self', {
+      p_nik: input.nik,
+      p_nama: input.nama,
+      p_nomor_hp: input.nomorHp,
+      p_banjar_asal: input.banjarAsal,
+    })
+
+    if (profileError) return { data: null, error: profileError }
+    return { data: mapWargaProfile(data), error: null }
+  }, [])
+
   const daftar = useCallback(
     async (input) => {
       setLoading(true)
@@ -58,39 +70,65 @@ export function useWargaAuth() {
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: input.email,
         password: input.password,
+        options: {
+          data: {
+            account_type: 'warga',
+            nik: input.nik,
+            nama: input.nama,
+            nomor_hp: input.nomorHp,
+            banjar_asal: input.banjarAsal,
+          },
+        },
       })
 
       if (signUpError || !authData.user) {
-        setError(signUpError?.message ?? 'Gagal membuat akun warga.')
-        setLoading(false)
-        return { data: null, error: signUpError }
-      }
+        const alreadyRegistered = signUpError?.message?.toLowerCase().includes('already')
 
-      const { data, error: insertError } = await supabase
-        .from('warga_profile')
-        .insert({
-          auth_id: authData.user.id,
-          nik: input.nik,
-          nama: input.nama,
-          nomor_hp: input.nomorHp,
-          banjar_asal: input.banjarAsal,
+        if (!alreadyRegistered) {
+          setError(signUpError?.message ?? 'Gagal membuat akun warga.')
+          setLoading(false)
+          return { data: null, error: signUpError }
+        }
+
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: input.email,
+          password: input.password,
         })
-        .select('*')
-        .single()
 
-      if (insertError) {
-        setError(insertError.message)
-        setLoading(false)
-        return { data: null, error: insertError }
+        if (signInError) {
+          setError('Email sudah terdaftar. Masuk dengan password lama atau gunakan email lain.')
+          setLoading(false)
+          return { data: null, error: signInError }
+        }
       }
 
-      const profile = mapWargaProfile(data)
-      dispatch({ type: 'SET_CITIZEN_USER', payload: profile })
+      if (!authData?.session) {
+        const { error: signInAfterSignUpError } = await supabase.auth.signInWithPassword({
+          email: input.email,
+          password: input.password,
+        })
+
+        if (signInAfterSignUpError) {
+          setError('Akun warga dibuat. Silakan masuk setelah email terverifikasi.')
+          setLoading(false)
+          return { data: null, error: signInAfterSignUpError }
+        }
+      }
+
+      const profileResult = await upsertProfil(input)
+
+      if (profileResult.error) {
+        setError(profileResult.error.message)
+        setLoading(false)
+        return profileResult
+      }
+
+      dispatch({ type: 'SET_CITIZEN_USER', payload: profileResult.data })
       dispatch({ type: 'CLEAR_AUTH_USER' })
       setLoading(false)
-      return { data: profile, error: null }
+      return profileResult
     },
-    [dispatch],
+    [dispatch, upsertProfil],
   )
 
   const masuk = useCallback(
@@ -113,7 +151,25 @@ export function useWargaAuth() {
 
       const profileResult = await fetchProfil(authData.user.id)
       if (profileResult.error || !profileResult.data) {
-        setError(profileResult.error?.message ?? 'Profil warga tidak ditemukan.')
+        const metadata = authData.user.user_metadata ?? {}
+
+        if (metadata.nik && metadata.nama && metadata.nomor_hp && metadata.banjar_asal) {
+          const repairedProfile = await upsertProfil({
+            nik: metadata.nik,
+            nama: metadata.nama,
+            nomorHp: metadata.nomor_hp,
+            banjarAsal: metadata.banjar_asal,
+          })
+
+          if (!repairedProfile.error && repairedProfile.data) {
+            dispatch({ type: 'SET_CITIZEN_USER', payload: repairedProfile.data })
+            dispatch({ type: 'CLEAR_AUTH_USER' })
+            setLoading(false)
+            return repairedProfile
+          }
+        }
+
+        setError(profileResult.error?.message ?? 'Profil warga belum dibuat. Buka menu Daftar dan isi data warga dengan email/password yang sama.')
         setLoading(false)
         return profileResult
       }
@@ -123,7 +179,7 @@ export function useWargaAuth() {
       setLoading(false)
       return profileResult
     },
-    [dispatch, fetchProfil],
+    [dispatch, fetchProfil, upsertProfil],
   )
 
   const keluar = useCallback(async () => {
